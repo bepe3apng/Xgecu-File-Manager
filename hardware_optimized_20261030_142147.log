@@ -1,0 +1,6 @@
+[14:21:47] HARDWARE TEST: F:\XGecu_prog\test_3gb.bin; bytes=3221225472; log=F:\XGecu_prog\emmc_continue\hardware_optimized_20261030_142147.log
+[14:21:47] [*] Инициализация eMMC перед записью USER...
+[14:21:47] [*] eMMC: 30 МГц, 4-bit, пресет: THGA
+[14:21:47] [*] 30 МГц: экспериментальный разгон Legacy (HS_TIMING=0; паспортный предел 26 МГц).
+[14:27:48] [!] Ошибка записи: Ошибка инициализации eMMC (ответ 0x21: 18 63 04 08 08 88 ff ff)
+[14:27:48] RESULT: success=False; stats={'sent': 0, 'streams': 0, 'skip': 0}; expected_USB_bytes=3221225472; elapsed=361.19s

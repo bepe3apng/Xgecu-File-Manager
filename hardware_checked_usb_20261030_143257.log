@@ -1,0 +1,3 @@
+[14:32:57] TEST: F:\XGecu_prog\test_3gb.bin; log=F:\XGecu_prog\emmc_continue\hardware_checked_usb_20261030_143257.log
+[14:32:57] [-] Программатор XGecu T48 не найден или занят.
+[14:32:57] RESULT: success=False, confirmed_send_bytes=0, elapsed=0.00s

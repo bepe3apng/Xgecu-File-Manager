@@ -1,0 +1,6 @@
+# Runtime dependencies (Windows, Python 3.11)
+Kivy==2.3.1
+kivy_deps.sdl2==0.8.0
+kivy_deps.glew==0.3.1
+kivy_deps.angle==0.4.0
+Pillow==13.0.0

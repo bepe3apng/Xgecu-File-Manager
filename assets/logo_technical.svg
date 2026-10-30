@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="320" viewBox="0 0 960 320">
+<title>Xgecu Prog — technical logo</title>
+<rect width="960" height="320" rx="32" fill="#16191D"/>
+<g transform="translate(56 56)" fill="none" stroke="#AFFC41" stroke-width="8" stroke-linecap="square">
+<rect x="40" y="40" width="128" height="128" rx="12"/>
+<path d="M64 20V40M104 20V40M144 20V40M64 168V188M104 168V188M144 168V188M20 64H40M20 104H40M20 144H40M168 64H188M168 104H188M168 144H188"/>
+<path d="M74 76L134 132M134 76L74 132" stroke="#FFFFFF" stroke-width="12"/>
+</g>
+<text x="306" y="153" fill="#FFFFFF" font-family="Segoe UI,Arial,sans-serif" font-size="66" font-weight="650" letter-spacing="-2">Xgecu Prog</text>
+<path d="M310 184H868" stroke="#548C2F" stroke-width="3"/>
+<text x="310" y="224" fill="#B7C2CC" font-family="Segoe UI,Arial,sans-serif" font-size="20" letter-spacing="6">eMMC · NAND · SPI</text>
+</svg>

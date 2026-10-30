@@ -1,0 +1,900 @@
+#:kivy 2.0.0
+#:import theme ui_theme.theme
+
+<Label>:
+    color: theme.button_text(getattr(self, 'background_color', theme.colors['button'])) if hasattr(self, 'background_color') else theme.colors['text']
+    disabled_color: theme.colors['muted']
+
+<Button>:
+    font_size: '13sp'
+    opacity: 0.45 if self.disabled else 1
+    color: theme.button_text(self.background_color)
+    disabled_color: theme.button_text(self.background_color)[:3] + (0.65,)
+    background_normal: ''
+    background_down: ''
+    background_disabled_normal: ''
+    background_disabled_down: ''
+    background_color: theme.button_background(self.text, theme.colors)
+
+<TextInput>:
+    background_normal: ''
+    background_active: ''
+    background_color: theme.colors['input']
+    foreground_color: theme.colors['text']
+    disabled_foreground_color: theme.colors['muted']
+    hint_text_color: theme.colors['muted']
+    cursor_color: theme.colors['blue']
+
+<CheckBox>:
+    color: theme.colors['blue']
+
+<SpinnerOption>:
+    color: theme.colors['text']
+    background_normal: ''
+    background_color: theme.colors['button']
+    canvas.after:
+        Color:
+            rgba: theme.colors['muted'][:3] + (0.4,)
+        Line:
+            points: self.x, self.y, self.right, self.y
+            width: 1
+
+
+<ExtCsdRow>:
+    size_hint_y: None
+    height: 40
+    spacing: 2
+    Button:
+        id: field_button
+        text: root.field
+        size_hint_x: 0.48
+        font_size: '11sp'
+        background_normal: ''
+        background_color: theme.colors['blue_button'] if root.screen and root.screen.extcsd_write_field == root.field else theme.colors['button']
+        disabled: root.screen.operation_running if root.screen else True
+        on_release: root.screen.select_extcsd_field(root.field)
+    Label:
+        id: current_value
+        text: root.screen.extcsd_values[root.offset] if root.screen and root.screen.extcsd_ready and root.offset in root.screen.extcsd_values else "--"
+        size_hint_x: 0.1
+    Label:
+        id: file_value
+        text: root.screen.extcsd_reference[root.offset] if root.screen and root.screen.extcsd_ready and root.offset in root.screen.extcsd_reference else "--"
+        size_hint_x: 0.1
+        color: theme.colors['orange'] if root.screen and root.screen.extcsd_ready and root.offset in root.screen.extcsd_reference and root.offset in root.screen.extcsd_values and root.screen.extcsd_reference[root.offset] != root.screen.extcsd_values[root.offset] else theme.colors['text']
+    TextInput:
+        id: new_value
+        text: root.screen.extcsd_drafts[root.offset] if root.screen and root.screen.extcsd_ready and root.offset in root.screen.extcsd_drafts else ""
+        size_hint_x: 0.12
+        multiline: False
+        disabled: not root.screen or root.screen.operation_running or not root.screen.extcsd_ready or root.offset == 160
+        on_text: root.screen.edit_extcsd_value(root.offset, self.text) if root.screen else None
+        on_focus: root.screen.select_extcsd_field(root.field) if self.focus and root.screen else None
+    Button:
+        id: write_value
+        text: "Чтение" if root.offset == 160 else "Записать"
+        size_hint_x: 0.2
+        font_size: '13sp'
+        disabled: not root.screen or root.screen.operation_running or not root.screen.extcsd_chip_ready or root.offset == 160
+        on_release: root.screen.write_extcsd(root.offset)
+
+<TableRow>:
+    orientation: 'horizontal'
+    size_hint_y: None
+    height: 36
+    canvas.before:
+        Color:
+            # Нулевая строка разметки выделяется темным сине-серым тоном
+            rgba: theme.colors['header'] if root.idx == 0 else (theme.colors['row'] if root.idx % 2 == 0 else theme.colors['alternate'])
+        Rectangle:
+            pos: self.pos
+            size: self.size
+    Label:
+        text: str(root.idx)
+        size_hint_x: 0.05
+        font_size: '11sp'
+        color: theme.colors['blue'] if root.idx == 0 else theme.colors['muted']
+    Label:
+        text: root.name_txt
+        size_hint_x: 0.23
+        font_size: '12sp'
+        bold: True
+        color: theme.colors['blue'] if root.idx == 0 else theme.colors['text']
+        halign: 'center'
+        valign: 'middle'
+        text_size: self.size
+    Label:
+        text: root.fs
+        size_hint_x: 0.12
+        font_size: '11sp'
+        color: theme.colors['green']
+    Label:
+        text: root.lba
+        size_hint_x: 0.18
+        font_size: '10sp'
+        color: theme.colors['muted']
+    Label:
+        text: root.size_txt
+        size_hint_x: 0.12
+        font_size: '11sp'
+        bold: True
+        color: theme.colors['orange']
+
+    # Три кнопки операций
+    BoxLayout:
+        size_hint_x: 0.30
+        spacing: 4
+        padding: [2, 3, 2, 3]
+        Button:
+            text: "Дамп"
+            font_size: '10sp'
+            bold: True
+            background_color: theme.colors['green_button']
+            on_release: root.on_btn_read()
+        Button:
+            text: "Запись"
+            font_size: '10sp'
+            bold: True
+            background_color: theme.colors['orange_button']
+            on_release: root.on_btn_write()
+        Button:
+            text: "Стереть"
+            font_size: '10sp'
+            bold: True
+            background_color: theme.colors['red_button']
+            on_release: root.on_btn_erase()
+
+<MainScreen>:
+    orientation: 'vertical'
+    canvas.before:
+        Color:
+            rgba: theme.colors['background']
+        Rectangle:
+            pos: self.pos
+            size: self.size
+
+    # --- 1. ВЕРХНИЕ ВКЛАДКИ РЕЖИМОВ (ПАМЯТЬ) ---
+    BoxLayout:
+        size_hint_y: None
+        height: 45
+        spacing: 2
+        canvas.before:
+            Color:
+                rgba: theme.colors['panel']
+            Rectangle:
+                pos: self.pos
+                size: self.size
+        Button:
+            text: "eMMC Flash"
+            bold: True
+            background_color: theme.colors['blue_button'] if root.active_mode_tab == 'emmc' else theme.colors['button']
+            on_release: root.select_mode("eMMC")
+        Button:
+            text: "NAND Flash [Soon]"
+            bold: True
+            background_color: theme.colors['blue_button'] if root.active_mode_tab == 'nand' else theme.colors['button']
+            on_release: root.select_mode("NAND")
+        Button:
+            text: "SPI Flash [Soon]"
+            bold: True
+            background_color: theme.colors['blue_button'] if root.active_mode_tab == 'spi' else theme.colors['button']
+            on_release: root.select_mode("SPI")
+        ToggleButton:
+            id: theme_toggle
+            color: theme.button_text(self.background_color)
+            background_normal: ''
+            background_down: ''
+            background_color: theme.colors['blue_button'] if self.state == 'down' else theme.colors['button']
+            text: "Светлая тема"
+            size_hint_x: None
+            width: 145
+            state: 'down' if root.light_theme else 'normal'
+            on_state: root.light_theme = self.state == 'down'
+
+
+    # --- 2. РАБОЧАЯ ОБЛАСТЬ ---
+    ScreenManager:
+        id: mode_manager
+        
+        # === ЭКРАН eMMC ===
+        Screen:
+            name: 'emmc'
+            BoxLayout:
+                orientation: 'vertical'
+                padding: 10
+                spacing: 10
+
+                # Toolbar eMMC
+                BoxLayout:
+                    size_hint_y: None
+                    height: 40
+                    spacing: 15
+                    Label:
+                        text: "VCCQ 1.8V:"
+                        size_hint_x: None
+                        width: 75
+                    CheckBox:
+                        id: chk_voltage
+                        active: True
+                        size_hint_x: None
+                        width: 30
+                    Label:
+                        text: "Шина:"
+                        size_hint_x: None
+                        width: 50
+                    Spinner:
+                        id: spin_bus
+                        text: "4-bit"
+                        values: ["1-bit", "4-bit"]
+                        size_hint_x: None
+                        width: 80
+                    Spinner:
+                        id: spin_clock
+                        disabled: root.operation_running or root.emmc_preset == 'Авто'
+                        text: root.emmc_clock
+                        values: ["8 МГц", "16 МГц", "20 МГц", "30 МГц"] + (["30 МГц (эксп.)"] if root.emmc_preset == "THGA" else [])
+                        size_hint_x: None
+                        width: 170
+                        on_text: root.set_emmc_clock(self.text)
+                    Label:
+                        text: "Пресет:"
+                        size_hint_x: None
+                        width: 65
+                    Spinner:
+                        id: spin_preset
+                        text: root.emmc_preset
+                        values: ["стандартный", "THGA", "Авто"]
+                        size_hint_x: None
+                        width: 170
+                        on_text: root.set_emmc_preset(self.text) if self.text != root.emmc_preset else None
+                    Widget:
+
+                # Рабочий сплит (Слева: Чтение/Запись, Справа: Лог)
+                BoxLayout:
+                    orientation: 'horizontal'
+                    spacing: 10
+
+                    # Левая половина: Подвкладки Чтение / Запись
+                    BoxLayout:
+                        orientation: 'vertical'
+                        size_hint_x: 0.55
+                        
+                        # Переключатель Чтение / Запись / Стирание
+                        BoxLayout:
+                            size_hint_y: None
+                            height: 35
+                            spacing: 5
+                            Button:
+                                text: "Чтение (Read)"
+                                bold: True
+                                background_color: theme.colors['green_button'] if root.active_sub_tab == 'sub_read' else theme.colors['button']
+                                on_release: root.switch_emmc_tab('sub_read')
+                            Button:
+                                text: "Запись (Write)"
+                                bold: True
+                                background_color: theme.colors['orange_button'] if root.active_sub_tab == 'sub_write' else theme.colors['button']
+                                on_release: root.switch_emmc_tab('sub_write')
+                            Button:
+                                text: "Стирание (Erase)"
+                                bold: True
+                                background_color: theme.colors['red_button'] if root.active_sub_tab == 'sub_erase' else theme.colors['button']
+                                on_release: root.switch_emmc_tab('sub_erase')
+
+                        ScreenManager:
+                            id: emmc_sub_tabs
+                            on_kv_post: self.current = root.active_sub_tab
+                            # Вкладка ЧТЕНИЕ
+                            Screen:
+                                name: 'sub_read'
+                                BoxLayout:
+                                    orientation: 'vertical'
+                                    spacing: 8
+                                    padding: [0, 8, 0, 0]
+
+                                    BoxLayout:
+                                        size_hint_y: None
+                                        height: 30
+                                        CheckBox:
+                                            id: chk_verify_read
+                                            size_hint_x: None
+                                            width: 32
+                                            active: root.verify_read
+                                            disabled: root.operation_running
+                                            on_active: root.verify_read = self.active
+                                        Label:
+                                            text: "Верификация после чтения"
+                                            text_size: self.size
+                                            halign: 'left'
+                                            valign: 'middle'
+
+                                    # Кнопки операций
+                                    BoxLayout:
+                                        size_hint_y: None
+                                        height: 35
+                                        spacing: 8
+                                        Button:
+                                            text: "Инит eMMC"
+                                            bold: True
+                                            background_color: theme.colors['init_button']
+                                            color: (1, 1, 1, 1) if not root.light_theme else theme.button_text(self.background_color)
+                                            on_release: root.start_analyze()
+                                        Button:
+                                            text: "Чтение Userdata"
+                                            background_color: theme.colors['blue_button']
+                                            on_release: root.dump_userdata()
+                                        Button:
+                                            text: "BOOT1"
+                                            background_color: theme.colors['blue_button']
+                                            on_release: root.dump_boot("BOOT1")
+                                        Button:
+                                            text: "BOOT2"
+                                            background_color: theme.colors['blue_button']
+                                            on_release: root.dump_boot("BOOT2")
+
+                                    Button:
+                                        id: btn_dump_all
+                                        text: "Полное чтение (BOOT1 + BOOT2 + Userdata)"
+                                        size_hint_y: None
+                                        height: 35
+                                        background_color: theme.colors['blue_button']
+                                        disabled: root.operation_running
+                                        on_release: root.dump_all()
+
+                                    # Шапка таблицы
+                                    BoxLayout:
+                                        size_hint_y: None
+                                        height: 28
+                                        canvas.before:
+                                            Color:
+                                                rgba: theme.colors['header']
+                                            Rectangle:
+                                                pos: self.pos
+                                                size: self.size
+                                        Label:
+                                            text: "#"
+                                            size_hint_x: 0.05
+                                            bold: True
+                                            font_size: '11sp'
+                                        Label:
+                                            text: "Имя раздела"
+                                            size_hint_x: 0.23
+                                            bold: True
+                                            font_size: '11sp'
+                                            halign: 'center'
+                                            valign: 'middle'
+                                            text_size: self.size
+                                        Label:
+                                            text: "ФС"
+                                            size_hint_x: 0.12
+                                            bold: True
+                                            font_size: '11sp'
+                                        Label:
+                                            text: "Диапазон LBA"
+                                            size_hint_x: 0.18
+                                            bold: True
+                                            font_size: '11sp'
+                                        Label:
+                                            text: "Размер"
+                                            size_hint_x: 0.12
+                                            bold: True
+                                            font_size: '11sp'
+                                        Label:
+                                            text: "Операции"
+                                            size_hint_x: 0.30
+                                            bold: True
+                                            font_size: '11sp'
+
+                                    # Таблица с разделами
+                                    RecycleView:
+                                        id: rv
+                                        viewclass: 'TableRow'
+                                        data: root.table_data
+                                        RecycleBoxLayout:
+                                            default_size: None, 36
+                                            default_size_hint: 1, None
+                                            size_hint_y: None
+                                            height: self.minimum_height
+                                            orientation: 'vertical'
+                                            spacing: 1
+
+                            # Вкладка ЗАПИСЬ
+                            Screen:
+                                name: 'sub_write'
+                                ScrollView:
+                                    do_scroll_x: False
+                                    BoxLayout:
+                                        orientation: 'vertical'
+                                        size_hint_y: None
+                                        height: self.minimum_height
+                                        spacing: 8
+                                        padding: 12
+                                        BoxLayout:
+                                            size_hint_y: None
+                                            height: 30
+                                            CheckBox:
+                                                id: chk_verify_write
+                                                size_hint_x: None
+                                                width: 32
+                                                active: root.verify_write
+                                                disabled: root.operation_running
+                                                on_active: root.verify_write = self.active
+                                            Label:
+                                                text: "Верификация после записи"
+                                                text_size: self.size
+                                                halign: 'left'
+                                                valign: 'middle'
+                                        BoxLayout:
+                                            size_hint_y: None
+                                            height: 48
+                                            CheckBox:
+                                                id: chk_erase_before_write
+                                                size_hint_x: None
+                                                width: 32
+                                                active: root.erase_before_write
+                                                disabled: root.operation_running
+                                                on_active: root.erase_before_write = self.active
+                                            Label:
+                                                text: "Стирать разделы перед записью (вся выбранная область, включая остаток после образа)"
+                                                text_size: self.size
+                                                halign: 'left'
+                                                valign: 'middle'
+                                        Label:
+                                            text: "Рабочая папка образов eMMC"
+                                            bold: True
+                                            size_hint_y: None
+                                            height: 26
+                                        BoxLayout:
+                                            size_hint_y: None
+                                            height: 36
+                                            spacing: 8
+                                            TextInput:
+                                                id: txt_write_folder
+                                                text: root.write_folder
+                                                hint_text: "Рабочая папка не выбрана"
+                                                readonly: True
+                                                multiline: False
+                                            Button:
+                                                text: "Выбрать..."
+                                                size_hint_x: None
+                                                width: 100
+                                                disabled: root.operation_running
+                                                on_release: root.select_write_folder()
+                                        BoxLayout:
+                                            size_hint_y: None
+                                            height: 32
+                                            spacing: 8
+                                            Button:
+                                                text: "Обновить файлы"
+                                                disabled: root.operation_running
+                                                on_release: root.refresh_write_files()
+                                            Button:
+                                                text: "Инит eMMC"
+                                                background_color: theme.colors['init_button']
+                                                color: (1, 1, 1, 1) if not root.light_theme else theme.button_text(self.background_color)
+                                                disabled: root.operation_running
+                                                on_release: root.start_analyze()
+                                        Button:
+                                            id: btn_write_all
+                                            text: "Записать чип (BOOT1 + BOOT2 + Userdata + выбранный EXT_CSD)"
+                                            size_hint_y: None
+                                            height: 36
+                                            opacity: 1 if root.light_theme else (0.45 if self.disabled else 1)
+                                            background_color: theme.colors['peach_button'][:3] + (0.45 if root.light_theme and self.disabled else 1,)
+                                            disabled_color: theme.colors['text'] if root.light_theme else theme.button_text(self.background_color)[:3] + (0.65,)
+                                            disabled: root.operation_running or not (root.write_files['BOOT1']['ready'] and root.write_files['BOOT2']['ready'] and root.write_files['USER']['ready'])
+                                            on_release: root.start_write_all()
+                                        Label:
+                                            text: "Меньший образ — предупреждение, больший — ошибка. Userdata — вся User Area."
+                                            size_hint_y: None
+                                            height: 40
+                                            text_size: self.width, None
+                                            font_size: '12sp'
+                                        BoxLayout:
+                                            orientation: 'vertical'
+                                            size_hint_y: None
+                                            height: 76
+                                            BoxLayout:
+                                                size_hint_y: None
+                                                height: 36
+                                                spacing: 6
+                                                Label:
+                                                    text: "BOOT1"
+                                                    size_hint_x: None
+                                                    width: 70
+                                                TextInput:
+                                                    id: txt_write_boot1
+                                                    text: root.write_files['BOOT1']['path']
+                                                    hint_text: "Boot1 не найден"
+                                                    readonly: True
+                                                    multiline: False
+                                                Button:
+                                                    id: btn_select_boot1
+                                                    text: "Файл..."
+                                                    size_hint_x: None
+                                                    width: 70
+                                                    disabled: root.operation_running
+                                                    on_release: root.select_write_file('BOOT1')
+                                                Button:
+                                                    id: btn_write_boot1
+                                                    text: "Записать"
+                                                    size_hint_x: None
+                                                    width: 90
+                                                    disabled: root.operation_running or not root.write_files['BOOT1']['ready']
+                                                    on_release: root.start_write('BOOT1')
+                                            Label:
+                                                text: root.write_files['BOOT1']['status']
+                                                text_size: self.width, None
+                                                font_size: '11sp'
+                                                halign: 'left'
+                                        BoxLayout:
+                                            orientation: 'vertical'
+                                            size_hint_y: None
+                                            height: 76
+                                            BoxLayout:
+                                                size_hint_y: None
+                                                height: 36
+                                                spacing: 6
+                                                Label:
+                                                    text: "BOOT2"
+                                                    size_hint_x: None
+                                                    width: 70
+                                                TextInput:
+                                                    id: txt_write_boot2
+                                                    text: root.write_files['BOOT2']['path']
+                                                    hint_text: "Boot2 не найден"
+                                                    readonly: True
+                                                    multiline: False
+                                                Button:
+                                                    id: btn_select_boot2
+                                                    text: "Файл..."
+                                                    size_hint_x: None
+                                                    width: 70
+                                                    disabled: root.operation_running
+                                                    on_release: root.select_write_file('BOOT2')
+                                                Button:
+                                                    id: btn_write_boot2
+                                                    text: "Записать"
+                                                    size_hint_x: None
+                                                    width: 90
+                                                    disabled: root.operation_running or not root.write_files['BOOT2']['ready']
+                                                    on_release: root.start_write('BOOT2')
+                                            Label:
+                                                text: root.write_files['BOOT2']['status']
+                                                text_size: self.width, None
+                                                font_size: '11sp'
+                                                halign: 'left'
+                                        BoxLayout:
+                                            orientation: 'vertical'
+                                            size_hint_y: None
+                                            height: 76
+                                            BoxLayout:
+                                                size_hint_y: None
+                                                height: 36
+                                                spacing: 6
+                                                Label:
+                                                    text: "Userdata"
+                                                    size_hint_x: None
+                                                    width: 70
+                                                TextInput:
+                                                    id: txt_write_userdata
+                                                    text: root.write_files['USER']['path']
+                                                    hint_text: "userdata не найден"
+                                                    readonly: True
+                                                    multiline: False
+                                                Button:
+                                                    id: btn_select_userdata
+                                                    text: "Файл..."
+                                                    size_hint_x: None
+                                                    width: 70
+                                                    disabled: root.operation_running
+                                                    on_release: root.select_write_file('USER')
+                                                Button:
+                                                    id: btn_write_userdata
+                                                    text: "Записать"
+                                                    size_hint_x: None
+                                                    width: 90
+                                                    disabled: root.operation_running or not root.write_files['USER']['ready']
+                                                    on_release: root.start_write('USER')
+                                            Label:
+                                                text: root.write_files['USER']['status']
+                                                text_size: self.width, None
+                                                font_size: '11sp'
+                                                halign: 'left'
+                                        BoxLayout:
+                                            orientation: 'vertical'
+                                            size_hint_y: None
+                                            height: 76
+                                            BoxLayout:
+                                                size_hint_y: None
+                                                height: 36
+                                                spacing: 6
+                                                Label:
+                                                    text: "EXT_CSD"
+                                                    size_hint_x: None
+                                                    width: 70
+                                                TextInput:
+                                                    id: txt_write_extcsd
+                                                    text: root.write_files['EXTCSD']['path']
+                                                    hint_text: "EXT_CSD не выбран (512 / 544 байта)"
+                                                    readonly: True
+                                                    multiline: False
+                                                Button:
+                                                    id: btn_select_extcsd
+                                                    text: "Файл..."
+                                                    size_hint_x: None
+                                                    width: 70
+                                                    disabled: root.operation_running
+                                                    on_release: root.select_write_file('EXTCSD')
+                                                Button:
+                                                    id: btn_write_extcsd_file
+                                                    text: "Записать"
+                                                    size_hint_x: None
+                                                    width: 90
+                                                    disabled: root.operation_running or not root.write_files['EXTCSD']['ready']
+                                                    on_release: root.start_write('EXTCSD')
+                                            Label:
+                                                text: root.write_files['EXTCSD']['status']
+                                                text_size: self.width, None
+                                                font_size: '11sp'
+                                                halign: 'left'
+                                        BoxLayout:
+                                            size_hint_y: None
+                                            height: 28
+                                            Label:
+                                                text: "Параметр (смещение)"
+                                                size_hint_x: 0.48
+                                            Label:
+                                                text: "Чип"
+                                                size_hint_x: 0.1
+                                            Label:
+                                                text: "Файл"
+                                                size_hint_x: 0.1
+                                            Label:
+                                                text: "Новый"
+                                                size_hint_x: 0.12
+                                            Label:
+                                                text: "Действие"
+                                                size_hint_x: 0.2
+                                        BoxLayout:
+                                            id: write_extcsd_table
+                                            orientation: 'vertical'
+                                            size_hint_y: None
+                                            height: self.minimum_height
+                                            spacing: 2
+                                            ExtCsdRow:
+                                                screen: root
+                                                field: "177 BOOT_BUS_WIDTH"
+                                                offset: 177
+                                            ExtCsdRow:
+                                                screen: root
+                                                field: "178 BOOT_CONFIG_PROT"
+                                                offset: 178
+                                            ExtCsdRow:
+                                                screen: root
+                                                field: "179 PARTITION_CONFIG"
+                                                offset: 179
+                                            ExtCsdRow:
+                                                screen: root
+                                                field: "162 RST_N_FUNCTION"
+                                                offset: 162
+                                            ExtCsdRow:
+                                                screen: root
+                                                field: "160 PARTITIONING_SUPPORT"
+                                                offset: 160
+# Вкладка СТИРАНИЕ
+                            Screen:
+                                name: 'sub_erase'
+                                BoxLayout:
+                                    orientation: 'vertical'
+                                    spacing: 12
+                                    padding: 15
+                                    canvas.before:
+                                        Color:
+                                            rgba: theme.colors['panel']
+                                        Rectangle:
+                                            pos: self.pos
+                                            size: self.size
+
+                                    Label:
+                                        text: "Стирание памяти (Hardware Erase)"
+                                        bold: True
+                                        size_hint_y: None
+                                        height: 30
+
+                                    BoxLayout:
+                                        size_hint_y: None
+                                        height: 35
+                                        Label:
+                                            text: "Область:"
+                                            size_hint_x: 0.4
+                                        Spinner:
+                                            id: spin_erase_target
+                                            text: "User Area (Весь)"
+                                            values: ["User Area (Весь)", "BOOT1", "BOOT2", "Пользовательский LBA"]
+                                            size_hint_x: 0.6
+                                            on_text: root.on_erase_target_change(self.text)
+
+                                    BoxLayout:
+                                        size_hint_y: None
+                                        height: 35
+                                        spacing: 10
+                                        Label:
+                                            text: "Start LBA:"
+                                            size_hint_x: 0.25
+                                        TextInput:
+                                            id: txt_erase_start
+                                            text: "0"
+                                            multiline: False
+                                            size_hint_x: 0.25
+                                        Label:
+                                            text: "End LBA:"
+                                            size_hint_x: 0.25
+                                        TextInput:
+                                            id: txt_erase_end
+                                            text: "0"
+                                            multiline: False
+                                            size_hint_x: 0.25
+
+                                    Button:
+                                        text: "СТЕРЕТЬ ВЫБРАННУЮ ОБЛАСТЬ"
+                                        size_hint_y: None
+                                        height: 45
+                                        bold: True
+                                        background_color: theme.colors['red_button']
+                                        on_release: root.start_erase()
+
+                                    Widget:
+                    # Правая половина: журнал и постоянный прогресс
+                    BoxLayout:
+                        orientation: 'vertical'
+                        size_hint_x: 0.45
+                        spacing: 8
+                        BoxLayout:
+                            size_hint_y: None
+                            height: 34
+                            spacing: 8
+                            Label:
+                                text: "Журнал операций"
+                                bold: True
+                                halign: 'left'
+                                text_size: self.size
+                                valign: 'middle'
+                            Button:
+                                text: "Копировать"
+                                size_hint_x: None
+                                width: 110
+                                on_release: root.copy_log()
+                            Button:
+                                id: clear_log
+                                text: "Очистить"
+                                size_hint_x: None
+                                width: 100
+                                on_release: root.log_text = ""
+                        BoxLayout:
+                            size_hint_y: None
+                            height: 34
+                            spacing: 8
+                            Spinner:
+                                id: log_level
+                                text: root.log_filter
+                                values: ["Все", "INFO", "OK", "WARN", "ERROR"]
+                                size_hint_x: None
+                                width: 100
+                                on_text: root.log_filter = self.text
+                            TextInput:
+                                id: log_search
+                                hint_text: "Поиск в журнале"
+                                text: root.log_query
+                                multiline: False
+                                on_text: root.log_query = self.text
+                            Button:
+                                text: "К последним"
+                                size_hint_x: None
+                                width: 120 if not root.log_follow else 0
+                                opacity: 0 if root.log_follow else 1
+                                disabled: root.log_follow
+                                on_release: root.follow_log()
+                        Label:
+                            text: root.progress_status
+                            size_hint_y: None
+                            height: 25
+                            halign: 'left'
+                            text_size: self.size
+                            valign: 'middle'
+                            color: theme.colors['muted']
+                        ScrollView:
+                            id: log_scroll
+                            do_scroll_x: False
+                            bar_width: 6
+                            bar_margin: 4
+                            bar_color: theme.colors['subtle']
+                            bar_inactive_color: theme.colors['subtle']
+                            scroll_type: ['bars', 'content']
+                            on_scroll_y: root.log_follow = self.scroll_y <= 0.02
+                            canvas.before:
+                                Color:
+                                    rgba: theme.colors['log']
+                                RoundedRectangle:
+                                    pos: self.pos
+                                    size: self.size
+                                    radius: [12]
+                            Label:
+                                id: log_output
+                                text: root.log_markup
+                                markup: True
+                                font_name: root.log_font
+                                font_size: '13sp'
+                                line_height: 1.55
+                                size_hint_y: None
+                                height: max(self.texture_size[1], self.parent.height)
+                                text_size: self.width, None
+                                valign: 'top'
+                                halign: 'left'
+                                padding: 16, 12
+                                on_texture_size: root.scroll_log()
+                        BoxLayout:
+                            size_hint_y: None
+                            height: 28
+                            spacing: 10
+                            M3Progress:
+                                id: operation_progress
+                                max: 100
+                                value: root.progress_value
+                                canvas:
+                                    Color:
+                                        rgba: theme.colors['header']
+                                    RoundedRectangle:
+                                        pos: self.x, self.center_y - 3
+                                        size: self.width, 6
+                                        radius: [3]
+                                    Color:
+                                        rgba: theme.colors['primary']
+                                    RoundedRectangle:
+                                        pos: self.x, self.center_y - 3
+                                        size: self.width * self.value / self.max, 6
+                                        radius: [3]
+                            Label:
+                                id: progress_percent
+                                text: "{:.2f}%".format(root.progress_value).replace(".", ",")
+                                size_hint_x: None
+                                width: 75
+                            Label:
+                                id: progress_speed
+                                text: "{:.2f} МиБ/с".format(root.progress_speed).replace(".", ",")
+                                size_hint_x: None
+                                width: 115
+
+        # === ЭКРАНЫ-ЗАГОТОВКИ ===
+        Screen:
+            name: 'nand'
+            Label:
+                text: "Режим NAND Flash в разработке"
+        Screen:
+            name: 'spi'
+            Label:
+                text: "Режим SPI Flash в разработке"
+
+    # --- 3. НИЖНЯЯ ПАНЕЛЬ С КНОПКАМИ ---
+    BoxLayout:
+        size_hint_y: None
+        height: 48
+        padding: [10, 5, 10, 5]
+        spacing: 10
+        canvas.before:
+            Color:
+                rgba: theme.colors['panel']
+            Rectangle:
+                pos: self.pos
+                size: self.size
+
+        # Разделитель, прижимающий СТОП в правый край
+        Widget:
+
+        Button:
+            text: "СТОП / СБРОС"
+            bold: True
+            font_size: '13sp'
+            size_hint_x: None
+            width: 180
+            background_color: theme.colors['red_button']
+            on_release: root.stop_operation()

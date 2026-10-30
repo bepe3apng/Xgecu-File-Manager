@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="320" viewBox="0 0 960 320">
+<title>Xgecu Prog — bright logo</title>
+<defs>
+<linearGradient id="chip" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#AFFC41"/><stop offset="1" stop-color="#27D8B5"/></linearGradient>
+<linearGradient id="word" x1="0" y1="0" x2="1" y2="0"><stop stop-color="#AFFC41"/><stop offset="1" stop-color="#56EBC9"/></linearGradient>
+<radialGradient id="halo"><stop stop-color="#548C2F" stop-opacity=".28"/><stop offset="1" stop-color="#548C2F" stop-opacity="0"/></radialGradient>
+</defs>
+<rect width="960" height="320" rx="32" fill="#101A20"/>
+<ellipse cx="172" cy="160" rx="172" ry="158" fill="url(#halo)"/>
+<g transform="translate(58 50)">
+<g fill="none" stroke="#AFFC41" stroke-width="7" stroke-linecap="round"><path d="M64 30V9M108 30V9M152 30V9M64 186V207M108 186V207M152 186V207M30 64H9M30 108H9M30 152H9M186 64H207M186 108H207M186 152H207"/></g>
+<rect x="30" y="30" width="156" height="156" rx="32" fill="url(#chip)"/>
+<path d="M69 70L100 108L69 146H93L120 112L147 146H172L132 96L153 70H129L120 82L111 70Z" fill="#102523" transform="translate(-9 0)"/>
+<path d="M75 70H98L107 82L95 98Z" fill="#FFFFFF" fill-opacity=".8"/>
+</g>
+<text x="310" y="151" fill="#FFFFFF" font-family="Segoe UI,Arial,sans-serif" font-size="66" font-weight="750" letter-spacing="-2">Xgecu <tspan fill="url(#word)">Prog</tspan></text>
+<rect x="314" y="186" width="62" height="5" rx="2.5" fill="#AFFC41"/>
+<text x="314" y="229" fill="#B7D4CF" font-family="Segoe UI,Arial,sans-serif" font-size="20" letter-spacing="6">eMMC · NAND · SPI</text>
+</svg>
