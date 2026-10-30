@@ -11,8 +11,8 @@ smoke_extcsd.py uses tests/fixtures/extcsd_sample.bin, a synthetic 544-byte EXT_
 ## Setup in a fresh checkout (Windows / PowerShell)
 
 ```powershell
-py -3.11 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\setup_venv.ps1
+# To include EXE build dependencies: .\setup_venv.ps1 -Build
 .\.venv\Scripts\python.exe gui.py
 ```
 
