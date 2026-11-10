@@ -77,5 +77,4 @@ emmc_continue/
 
 💳Сбер - https://messenger.online.sberbank.ru/sl/b64OEIJdaiBKMQ5W3
 
-💳С любой карты - [Пожертвовать](https://yoomoney.ru/fundraise/1LE3UV6FAAK.261108)
 
