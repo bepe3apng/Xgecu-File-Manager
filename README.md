@@ -77,4 +77,4 @@ emmc_continue/
 
 💳Сбер - https://messenger.online.sberbank.ru/sl/b64OEIJdaiBKMQ5W3
 
-
+💳Любая карта - https://tips.tips/000491446
