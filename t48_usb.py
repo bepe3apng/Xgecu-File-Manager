@@ -140,14 +140,17 @@ class XGecuT48:
         self._cleaning_up = True
         try:
             self.abort_transfers()
-            self.set_command_timeout(PIPE_TRANSFER_TIMEOUT)
+            self.set_command_timeout(1000)
             for endpoint in (0x81, 0x82):
                 winusb.WinUsb_FlushPipe(self.winusb_handle, endpoint)
             self.write_pipe(0x01, bytes.fromhex("0400000000000000"))
             if not self.read_pipe(0x81, 16):
                 raise RuntimeError('Нет ответа T48 на команду отключения питания')
         finally:
-            self._cleaning_up = False
+            try:
+                self.set_command_timeout(PIPE_TRANSFER_TIMEOUT)
+            finally:
+                self._cleaning_up = False
 
     def close(self):
         with _devices_lock:

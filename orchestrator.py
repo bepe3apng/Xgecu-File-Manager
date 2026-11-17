@@ -161,6 +161,28 @@ class AppOrchestrator:
                 result_cb(*result)
         return self.run_task(_body)
 
+    def run_emmc_service(self, action, folder, result_cb, expected=None,
+                         firmware_path="", cid_text="", started_cb=None, error_cb=None):
+        expected = dict(expected) if expected else None
+        def _body():
+            try:
+                if self.active_mode != "eMMC":
+                    raise ValueError("Сервис доступен только для eMMC")
+                if started_cb:
+                    started_cb()
+                result = self.emmc_driver.run_service(
+                    action, folder, expected, firmware_path, cid_text, self.stop_event.is_set)
+                result_cb(result)
+            except Exception as error:
+                if error_cb:
+                    error_cb(str(error))
+                raise
+            finally:
+                if action != "probe":
+                    from modes.emmc.autoconfig import forget
+                    forget()
+        return self.run_task(_body)
+
     def run_read_info(self, is_18v, bus_width, result_cb=None):
         return self.run_task(self._task_read_info, is_18v, bus_width, result_cb, clear_table_on_error=True)
 

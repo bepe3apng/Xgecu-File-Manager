@@ -54,7 +54,27 @@ def rpmb_status(code) -> tuple:
             f"RPMB  Partition status: 0x{code:04X}")
 
 
-def decode_registers(cid_raw, ecsd) -> dict:
+def user_sector_count(ecsd, csd_raw=None):
+    """Use SEC_COUNT, or legacy CSD capacity for <=2 GiB eMMC through 4.41."""
+    if len(ecsd) != 512:
+        return 0
+    sectors = int.from_bytes(ecsd[212:216], "little")
+    if sectors:
+        return sectors
+    if ecsd[192] > 5 or csd_raw is None or len(csd_raw) != 24 or csd_raw[:2] != b"\x06\x00":
+        return 0
+    csd = int.from_bytes(dword_swap(csd_raw[8:24]), "big")
+    read_bl_len = (csd >> 80) & 15
+    c_size = (csd >> 62) & 4095
+    c_size_mult = (csd >> 47) & 7
+    # All-ones C_SIZE is the high-capacity sentinel: require EXT_CSD instead.
+    if c_size == 4095 or not 9 <= read_bl_len <= 11:
+        return 0
+    capacity = (c_size + 1) * (1 << (c_size_mult + 2 + read_bl_len))
+    return capacity // 512 if 0 < capacity <= 2 * 1024**3 else 0
+
+
+def decode_registers(cid_raw, ecsd, csd_raw=None) -> dict:
     """Декодирует CID/ECSD в структуру полей для отчёта и таблицы."""
     cid_blk = dword_swap(cid_raw[8:24])
 
@@ -77,7 +97,7 @@ def decode_registers(cid_raw, ecsd) -> dict:
 
     boot_mult = ecsd[226] if len(ecsd) > 226 else 0
     rpmb_mult = ecsd[168] if len(ecsd) > 168 else 0
-    sec_count = struct.unpack("<I", ecsd[212:216])[0] if len(ecsd) > 216 else 0
+    sec_count = user_sector_count(ecsd, csd_raw)
     user_bytes = sec_count * 512
 
     return {

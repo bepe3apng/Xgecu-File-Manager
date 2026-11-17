@@ -101,21 +101,35 @@ class EmmcSession:
 
         dev.set_command_timeout(30000)
         try:
-            dev.write_pipe(P.EP_CMD_OUT, bytes.fromhex(P.bus_mode_cmd(bus_width, self.clock_mhz)))
+            # 4-bit HS30 uses native selector; retain the safe 8 MHz path for 1-bit.
+            startup_clock = 8 if self.clock_mhz == 30 and not self.legacy_30 and bus_width != "4-bit" else self.clock_mhz
+            dev.write_pipe(P.EP_CMD_OUT, bytes.fromhex(P.bus_mode_cmd(bus_width, startup_clock)))
             response = dev.read_pipe(P.EP_CMD_IN, 8)
         finally:
             dev.set_command_timeout(1500)
         if len(response) != 8 or response[0] != 0x21 or response[1] != 0:
             raise RuntimeError(f"Ошибка инициализации eMMC (ответ 0x21: {response.hex(' ') or 'нет ответа'})")
+        # OCR access mode (bit 30): old <=2 GiB cards use byte addresses.
+        self._sector_addressed = bool(int.from_bytes(response[4:8], "little") & (1 << 30))
         time.sleep(0.1)
 
     def wake_registers(self, bus_width):
         """Выводит чип из спящего режима, возвращает (cid, csd, ecsd)."""
         dev = self.dev
-        dev.write_pipe(P.EP_CMD_OUT, bytes.fromhex(P.wake_cid_cmd(bus_width, self.clock_mhz)))
+        high_speed_30 = self.clock_mhz == 30 and not self.legacy_30
+        startup_clock = 8 if high_speed_30 and bus_width != "4-bit" else self.clock_mhz
+        dev.write_pipe(P.EP_CMD_OUT, bytes.fromhex(P.wake_cid_cmd(bus_width, startup_clock)))
         cid = dev.read_pipe(P.EP_CMD_IN, 32)
         if len(cid) != 32 or cid[:2] != b"\x07\x00":
             raise RuntimeError(f"Ошибка чтения CID: {cid.hex(' ') or 'нет ответа'}")
+        if high_speed_30:
+            # 30 MHz requires the 52 MHz SDR capability, not only 26 MHz support.
+            capability = self.read_extcsd()
+            if not capability[196] & 0x02:
+                raise RuntimeError("eMMC не заявляет SDR High-Speed 52 МГц; выберите частоту до 20 МГц")
+            self.write_extcsd_byte(185, 1)
+            if self.read_extcsd()[185] & 0x0F != 1:
+                raise RuntimeError("HS_TIMING=1 не подтверждён на 8 МГц; переход на 30 МГц отменён")
         if self.legacy_30:
             # T48 enables HS during CID. Restore Legacy before CMD9 at the same divider.
             command = bytes.fromhex(P.CMD_LEGACY_TIMING)
@@ -132,11 +146,12 @@ class EmmcSession:
         ecsd = self.read_extcsd()
         if self.clock_mhz == 30:
             expected_width = 1 if bus_width == "4-bit" else 0
-            # Standard captures return BUS_WIDTH=0 even with the 4-bit config.
-            # Accept captured values without claiming the physical bus width.
-            valid_widths = (expected_width,) if self.preset == "THGA" else (0, expected_width)
+            # Safe HS startup also returns BUS_WIDTH=0 for THGA 4-bit settings.
+            # Accept observed SDR values without claiming the physical bus width.
+            valid_widths = (expected_width,) if self.preset == "THGA" and self.legacy_30 else (0, expected_width)
             expected_timing = 0 if self.legacy_30 else 1
-            if (ecsd[185] & 0x0F) != expected_timing or ecsd[183] not in valid_widths or not int.from_bytes(ecsd[212:216], "little"):
+            from .registers import user_sector_count
+            if (ecsd[185] & 0x0F) != expected_timing or ecsd[183] not in valid_widths or not user_sector_count(ecsd, csd):
                 mode = "Legacy" if self.legacy_30 else "High-Speed"
                 raise RuntimeError(f"EXT_CSD не подтвердил {mode}, ширину шины или ёмкость на 30 МГц")
         self._last_cid = cid
@@ -151,7 +166,10 @@ class EmmcSession:
         c2 = self.dev.read_pipe(P.EP_BULK_IN, 8)
         if len(c1) != 512 or len(c2) != 8:
             raise RuntimeError(f"Неполный ответ EXT_CSD: {len(c1) + len(c2)} из 520 байт")
-        return (c1 + c2)[8:520]
+        response = c1 + c2
+        if response[1] != 0:
+            raise RuntimeError(f"Ошибка чтения EXT_CSD: status=0x{response[1]:02x}")
+        return response[8:520]
 
     def write_extcsd_byte(self, index, value, switch_time_ms=0):
         command = P.switch_byte_cmd(index, value)
@@ -208,15 +226,41 @@ class EmmcSession:
 
     # --- Единый чанк-движок чтения ---
 
+    def read_single_sector(self, lba):
+        """Probe a mode with CMD17 before entering the asynchronous stream."""
+        address = lba if getattr(self, "_sector_addressed", True) else lba * P.SECTOR_SIZE
+        command = P.single_read_cmd(address)
+        if self.dev.write_pipe(P.EP_CMD_OUT, command) != len(command):
+            raise RuntimeError("Неполная команда CMD17")
+        head = self.dev.read_pipe(P.EP_BULK_IN, 512)
+        tail = self.dev.read_pipe(P.EP_BULK_IN, 8)
+        if len(head) != 512 or len(tail) != 8:
+            raise RuntimeError("Неполный ответ CMD17")
+        raw = head + tail
+        if raw[1] != 0:
+            raise RuntimeError(f"Ошибка CMD17: status=0x{raw[1]:02x}")
+        return raw[8:]
+
     def start_read(self, start_lba, n_chunks):
         """Отправка WR/READ_SETUP для потока чтения."""
-        self.dev.write_pipe(P.EP_CMD_OUT, bytes(P.read_setup(start_lba, n_chunks)))
+        self._byte_read_next = None
+        if getattr(self, "_sector_addressed", True):
+            self.dev.write_pipe(P.EP_CMD_OUT, bytes(P.read_setup(start_lba, n_chunks)))
+        else:
+            # T48 advances multi-chunk streams in sector units. Supply each byte
+            # address explicitly until byte-mode streaming is established.
+            self._byte_read_next = (start_lba + P.CHUNK_SECTORS) * P.SECTOR_SIZE
+            self.dev.write_pipe(P.EP_CMD_OUT, bytes(P.read_setup(start_lba * P.SECTOR_SIZE, 1)))
 
     def iter_read_chunks(self, n_chunks):
         """Генератор чистых порций данных из BULK-потока чтения."""
         big = ctypes.create_string_buffer(P.CHUNK_BYTES)
         tail = ctypes.create_string_buffer(16)
-        for _ in range(n_chunks):
+        for index in range(n_chunks):
+            if index and getattr(self, "_byte_read_next", None) is not None:
+                address = self._byte_read_next
+                self.dev.write_pipe(P.EP_CMD_OUT, bytes(P.read_setup(address, 1)))
+                self._byte_read_next += P.CHUNK_BYTES
             tb = self.dev.read_pipe_into(P.EP_BULK_IN, big)
             tt = self.dev.read_pipe_into(P.EP_BULK_IN, tail)
             if tb == P.CHUNK_BYTES and tt == 16:
@@ -238,7 +282,12 @@ class EmmcSession:
 
     # --- Единый чанк-движок записи ---
 
+    def require_sector_writes(self):
+        if not getattr(self, "_sector_addressed", True):
+            raise RuntimeError("Запись/стирание eMMC с байтовой адресацией пока не проверены и заблокированы")
+
     def start_write(self, start_lba, n_chunks, bus_width):
+        self.require_sector_writes()
         self.dev.begin_write()
         try:
             self.dev.write_pipe(

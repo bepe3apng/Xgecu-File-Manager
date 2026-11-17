@@ -114,6 +114,11 @@ def bus_mode_cmd(bus_width, clock_mhz=8):
     return f"21{CLOCK_SELECTORS[clock_mhz]}000000000000"
 
 
+def single_read_cmd(address):
+    """Bounded CMD17 through the generic read handler, with an 8-byte header."""
+    return bytes((0x08, 0x51, 0x00, 0x02)) + struct.pack("<I", address)
+
+
 def read_setup(start_lba, n_chunks):
     setup = bytearray(READ_SETUP_TEMPLATE)
     struct.pack_into("<I", setup, 4, start_lba)

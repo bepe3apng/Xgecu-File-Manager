@@ -28,6 +28,17 @@
 <CheckBox>:
     color: theme.colors['blue']
 
+<Spinner>:
+    padding: dp(8), 0, dp(28), 0
+    text_size: self.size
+    halign: 'center'
+    valign: 'middle'
+    canvas.after:
+        Color:
+            rgba: self.disabled_color if self.disabled else self.color
+        Triangle:
+            points: self.right - dp(19), self.center_y + dp(3), self.right - dp(9), self.center_y + dp(3), self.right - dp(14), self.center_y - dp(3)
+
 <SpinnerOption>:
     color: theme.colors['text']
     background_normal: ''
@@ -39,6 +50,110 @@
             points: self.x, self.y, self.right, self.y
             width: 1
 
+
+<EmmcServicePopup>:
+    title: "Firmware / CID"
+    title_color: theme.colors['text']
+    background: ''
+    background_color: theme.colors['panel']
+    separator_color: theme.colors['blue']
+    size_hint: 0.94, 0.9
+    auto_dismiss: False
+    BoxLayout:
+        orientation: 'vertical'
+        spacing: 10
+        padding: 8
+        Label:
+            text: "Сервисный режим: THGA · 8 МГц · 1-bit · VCCQ 1.8 V. Требуется T48 SCV3."
+            size_hint_y: None
+            height: 42
+            text_size: self.width, None
+            halign: 'left'
+        TextInput:
+            text: root.status
+            readonly: True
+            multiline: True
+        Button:
+            id: service_init
+            text: "Инит eMMC"
+            color: theme.button_text(self.background_color) if theme.light else (1, 1, 1, 1)
+            disabled_color: self.color[:3] + [0.65]
+            size_hint_y: None
+            height: 38
+            disabled: not root.screen or root.screen.operation_running
+            on_release: root.init_emmc()
+        Spinner:
+            id: service_firmware
+            text: "Выберите firmware из базы"
+            values: root.firmware_options
+            size_hint_y: None
+            height: 38
+            disabled: not root.screen or root.screen.operation_running
+            on_text: root.choose_firmware(self.text) if self.text in root.firmware_options else None
+        Button:
+            id: service_rstn
+            text: "Сбросить RST_n и вернуть исходные проверки"
+            size_hint_y: None
+            height: 38
+            disabled: not root.screen or root.screen.operation_running or not root.snapshot or not root.firmware_path
+            on_release: root.start('rstn')
+        Button:
+            id: service_rpmb
+            text: "Сбросить ключ RPMB (44 BIN · эксперимент · RPM4)"
+            size_hint_y: None
+            height: 38
+            disabled: not root.screen or root.screen.operation_running or not root.snapshot or not root.firmware_path
+            on_release: root.start('rpmb')
+        BoxLayout:
+            size_hint_y: None
+            height: 38
+            spacing: 8
+            TextInput:
+                text: root.cid_file_path
+                hint_text: "RAW CID: 16 байт. Выбранный файл имеет приоритет."
+                readonly: True
+                multiline: False
+            Button:
+                text: "Выбрать RAW CID"
+                size_hint_x: 0.3
+                disabled: not root.screen or root.screen.operation_running
+                on_release: root.choose_cid_file()
+            Button:
+                text: "Сбросить файл"
+                size_hint_x: 0.25
+                disabled: not root.screen or root.screen.operation_running or not root.cid_file_path
+                on_release: root.clear_cid_file()
+        Label:
+            text: "CID вручную (32 HEX), если файл не выбран. CRC7 рассчитывается автоматически."
+            size_hint_y: None
+            height: 42
+            text_size: self.width, None
+            halign: 'left'
+        TextInput:
+            id: service_cid
+            hint_text: "Сначала прочитайте чип"
+            multiline: False
+            size_hint_y: None
+            height: 38
+            disabled: not root.screen or root.screen.operation_running or not root.snapshot
+        Button:
+            text: "Сменить CID и вернуть исходный gate"
+            size_hint_y: None
+            height: 38
+            disabled: not root.screen or root.screen.operation_running or not root.snapshot
+            on_release: root.start('cid')
+        BoxLayout:
+            size_hint_y: None
+            height: 38
+            spacing: 8
+            Button:
+                text: "STOP"
+                disabled: not root.screen or not root.screen.operation_running
+                on_release: root.screen.orchestrator.stop_operation()
+            Button:
+                text: "Закрыть"
+                disabled: not root.screen or root.screen.operation_running
+                on_release: root.dismiss()
 
 <ExtCsdRow>:
     size_hint_y: None
@@ -279,6 +394,17 @@
                                 bold: True
                                 background_color: theme.colors['red_button'] if root.active_sub_tab == 'sub_erase' else theme.colors['button']
                                 on_release: root.switch_emmc_tab('sub_erase')
+                            Button:
+                                text: "Тесты"
+                                bold: True
+                                background_color: theme.colors['blue'] if root.active_sub_tab == 'sub_tests' else theme.colors['button']
+                                on_release: root.switch_emmc_tab('sub_tests')
+
+                            Button:
+                                id: btn_emmc_service
+                                text: "Firmware / CID"
+                                disabled: root.operation_running
+                                on_release: root.open_emmc_service()
 
                         ScreenManager:
                             id: emmc_sub_tabs
@@ -744,6 +870,58 @@
                                         on_release: root.start_erase()
 
                                     Widget:
+                            Screen:
+                                name: 'sub_tests'
+                                BoxLayout:
+                                    orientation: 'vertical'
+                                    padding: 10
+                                    spacing: 10
+                                    Label:
+                                        text: "Тест скорости всей User Area"
+                                        size_hint_y: None
+                                        height: 32
+                                        bold: True
+                                    BoxLayout:
+                                        spacing: 10
+                                        BoxLayout:
+                                            orientation: 'vertical'
+                                            size_hint_x: 0.3
+                                            spacing: 10
+                                            Spinner:
+                                                id: test_kind
+                                                text: "Чтение"
+                                                values: ["Чтение", "Запись"]
+                                                size_hint_y: None
+                                                height: 40
+                                                disabled: root.operation_running
+                                            Button:
+                                                text: "Старт"
+                                                size_hint_y: None
+                                                height: 42
+                                                disabled: root.operation_running
+                                                on_release: root.start_benchmark()
+                                            Button:
+                                                text: "STOP"
+                                                size_hint_y: None
+                                                height: 42
+                                                disabled: not root.operation_running
+                                                on_release: root.stop_operation()
+                                            Widget:
+                                        BoxLayout:
+                                            orientation: 'vertical'
+                                            SpeedGraph:
+                                                id: test_graph
+                                            Label:
+                                                text: root.test_summary
+                                                text_size: self.width, None
+                                                size_hint_y: None
+                                                height: 64
+                                    Label:
+                                        text: "Запись уничтожит данные и разметку User Area.\nЧтение не изменяет данные. X: время (с), Y: скорость (МиБ/с)."
+                                        text_size: self.width, None
+                                        size_hint_y: None
+                                        height: 65
+
                     # Правая половина: журнал и постоянный прогресс
                     BoxLayout:
                         orientation: 'vertical'

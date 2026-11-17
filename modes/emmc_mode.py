@@ -19,6 +19,10 @@ class EmmcDriver:
             self.log, is_18v, bus_width, index, value, expected_data,
             expected_cid, abort_check, allow_otp)
 
+    def run_service(self, action, folder, expected=None, firmware_path="", cid_text="", abort_check=None):
+        from modes.emmc.service import run_service
+        return run_service(self.log, action, folder, expected, firmware_path, cid_text, abort_check)
+
     def read_extcsd(self, is_18v, bus_width, abort_check=None):
         return operations.read_extcsd(self.log, is_18v, bus_width, abort_check)
 

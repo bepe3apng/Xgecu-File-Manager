@@ -1,3 +1,4 @@
+from speed_graph import SpeedGraph
 import tkinter as tk
 from tkinter import filedialog
 from kivy.app import App
@@ -10,6 +11,7 @@ from kivy.core.window import Window
 from kivy.uix.recycleview.views import RecycleDataViewBehavior
 from t48_usb import XGecuT48
 from orchestrator import AppOrchestrator
+from ui_emmc_service import EmmcServicePopup
 from modes.emmc import protocol as P
 
 Window.title = "XGecu T48 Universal Flasher PRO"
@@ -547,9 +549,13 @@ class MainScreen(BoxLayout):
             sm.current = target_screen
             self.active_mode_tab = target_screen  # Обновляем подсветку верхних вкладок
 
+    def open_emmc_service(self):
+        if not self.operation_running and self.active_mode_tab == "emmc":
+            EmmcServicePopup(screen=self).open()
+
     def switch_emmc_tab(self, target_screen):
         sm = self.ids.emmc_sub_tabs
-        tab_order = ['sub_read', 'sub_write', 'sub_erase']
+        tab_order = ['sub_read', 'sub_write', 'sub_erase', 'sub_tests']
         
         if sm.current != target_screen:
             current_idx = tab_order.index(sm.current)
@@ -562,7 +568,7 @@ class MainScreen(BoxLayout):
             self.refresh_write_files()
 
     # Анализ чипа и разметки
-    def start_analyze(self):
+    def start_analyze(self, result_cb=None):
         if self.operation_running:
             return
         from modes.emmc.autoconfig import forget
@@ -583,6 +589,8 @@ class MainScreen(BoxLayout):
                 self._extcsd_settings = (is_18v, bus, preset, clock)
                 self._show_extcsd(info["extcsd"], "Анализ: CID " + info["cid"].hex(), info["cid"])
                 self._apply_extcsd_import()
+                if result_cb:
+                    result_cb(info)
             Clock.schedule_once(apply, 0)
         self.orchestrator.run_read_info(is_18v, bus, result_cb=result)
 
@@ -801,6 +809,73 @@ class MainScreen(BoxLayout):
         except Exception:
             self.operation_running = False
             raise
+
+    test_summary = StringProperty("X: секунды | Y: МиБ/с")
+
+    def start_benchmark(self):
+        if self.operation_running:
+            return
+        from tkinter import messagebox
+        from modes.emmc.benchmark import run_benchmark
+        kind = "write" if self.ids.test_kind.text == "Запись" else "read"
+        dialog = tk.Tk()
+        dialog.withdraw()
+        dialog.attributes('-topmost', True)
+        try:
+            warning = ("ВНИМАНИЕ! Тест записи сотрёт ВСЕ ДАННЫЕ в User Area "
+                       "флеш-памяти, включая разметку и разделы. Нужна резервная копия.\n"
+                       "BOOT1, BOOT2 и RPMB не затрагиваются.\n\n")
+            warning += ("Выбрана ЗАПИСЬ: User Area будет стёрта и перезаписана."
+                        if kind == "write" else
+                        "Выбрано ЧТЕНИЕ: данные не изменяются, стирания нет.")
+            confirmed = messagebox.askyesno("Тест eMMC", warning + "\n\nПродолжить?",
+                                           parent=dialog, default="no")
+        finally:
+            dialog.destroy()
+        if not confirmed or self.operation_running:
+            return
+        voltage, bus = self.ids.chk_voltage.active, self.ids.spin_bus.text
+        graph = self.ids.test_graph
+        old_samples, old_summary = graph.samples[:], self.test_summary
+        graph.samples = []
+        self.test_summary = "Подготовка теста..."
+        import threading
+        pending = []
+        pending_lock = threading.Lock()
+        def apply(dt):
+            with pending_lock:
+                batch = pending[:]
+                pending.clear()
+            points = graph.samples + [(t, speed) for t, speed, pct in batch]
+            if len(points) > 2000:
+                points = points[::2] + points[-1:]
+            graph.samples = points
+            if batch:
+                elapsed, speed, pct = batch[-1]
+                self.test_summary = (f"{pct:.1f}% | {elapsed:.1f} с | {speed:.2f} МиБ/с | "
+                                     f"Y: 0–{max(max(p[1] for p in points) * 1.1, 1):.1f}")
+                self.progress_value, self.progress_speed = pct, speed
+        refresh = Clock.create_trigger(apply, 0.1)
+        def sample(elapsed, speed, pct):
+            with pending_lock:
+                pending.append((elapsed, speed, pct))
+            refresh()
+        def body():
+            try:
+                ok = run_benchmark(self.orchestrator.log, voltage, bus, kind, sample,
+                                   self.orchestrator.stop_event.is_set)
+                result = "Тест завершён" if ok else "Тест остановлен"
+            except Exception:
+                result = "Ошибка теста — см. журнал"
+                raise
+            finally:
+                refresh.cancel()
+                def finish(dt):
+                    apply(dt)
+                    self.test_summary = result + " | " + self.test_summary
+                Clock.schedule_once(finish, 0)
+        if not self.orchestrator.run_task(body):
+            graph.samples, self.test_summary = old_samples, old_summary
 
     def on_erase_target_change(self, target):
             if target == "BOOT1" or target == "BOOT2":

@@ -292,13 +292,22 @@ def read_info_and_partitions(log_cb, is_18v, bus_width, abort_check=None):
             log_cb("[-] Чип eMMC не отвечает (проверьте контакты/пайку).")
             return None, []
 
-        reg = registers.decode_registers(cid_raw, ecsd)
+        reg = registers.decode_registers(cid_raw, ecsd, csd_raw)
+        from .register_archive import save_registers
+        register_folder = None
+        try:
+            register_folder = str(save_registers(cid_raw, csd_raw, ecsd, reg["pnm"]))
+            log_cb("[+] RAW CID/CSD/EXT_CSD сохранены: " + register_folder)
+        except (OSError, ValueError) as error:
+            log_cb("[!] Не удалось сохранить RAW-регистры: " + str(error))
         rpmb_tail = session.rpmb_probe()
         rpmb_code = struct.unpack(">H", rpmb_tail[12:14])[0] if len(rpmb_tail) >= 14 else 0xFFFF
         rpmb_status_line, _ = registers.rpmb_status(rpmb_code)
 
         info = {
             "extcsd": bytes(ecsd),
+            "csd_response": bytes(csd_raw),
+            "register_folder": register_folder,
             "cid": bytes(cid_raw),
             "report": report_mod.build(reg, rpmb_status_line) + "\n  EXT_CSD — настройки:\n" + "\n".join(
                 f"      [{index}] {name}: 0x{ecsd[index]:02X}"
@@ -373,7 +382,7 @@ def dump_boot(log_cb, is_18v, bus_width, part_name, size_bytes, out_path, abort_
         return
     try:
         session.init_hw(is_18v, bus_width)
-        _, _, ecsd = session.wake_registers(bus_width)
+        _, csd_raw, ecsd = session.wake_registers(bus_width)
         capacity = ecsd[226] * 128 * 1024 if len(ecsd) > 226 else 0
         if capacity <= 0:
             raise RuntimeError(f"Не удалось определить размер {part_name} из EXT_CSD")
@@ -401,9 +410,9 @@ def dump_user_area(log_cb, is_18v, bus_width, out_path, abort_check=None, verify
     try:
         log_cb("[*] Инициализация eMMC перед чтением User Area...")
         session.init_hw(is_18v, bus_width)
-        _, _, ecsd = session.wake_registers(bus_width)
+        _, csd_raw, ecsd = session.wake_registers(bus_width)
 
-        sec_count = struct.unpack("<I", ecsd[212:216])[0] if len(ecsd) > 216 else 0
+        sec_count = registers.user_sector_count(ecsd, csd_raw)
         if sec_count == 0:
             log_cb("[-] Ошибка: Не удалось определить размер User Area из ECSD.")
             return
@@ -459,9 +468,11 @@ def erase_blocks(log_cb, is_18v, bus_width, part_type, start_lba, end_lba,
     try:
         log_cb("[*] Инициализация оборудования для стирания...")
         session.init_hw(is_18v, bus_width)
-        _, _, ecsd = session.wake_registers(bus_width)
+        _, csd_raw, ecsd = session.wake_registers(bus_width)
 
-        sec_count = struct.unpack("<I", ecsd[212:216])[0] if len(ecsd) > 216 else 0
+        sec_count = registers.user_sector_count(ecsd, csd_raw)
+        if not getattr(session, "_sector_addressed", True):
+            raise RuntimeError("Стирание eMMC с байтовой адресацией пока не проверено и заблокировано")
         boot_sectors = (ecsd[226] * 128 * 1024) // 512 if len(ecsd) > 226 else 0
 
         if part_type == "USER" and end_lba <= 0:
@@ -557,6 +568,8 @@ def _verify_erased(session, log_cb, part_name, start_lba, end_lba, erased_byte, 
 
 def _erase_before_write(session, log_cb, part_name, start_lba, end_lba, abort_check, erased_byte):
     """Erase the selected, validated area in the current hardware session."""
+    if not getattr(session, "_sector_addressed", True):
+        raise RuntimeError("Стирание eMMC с байтовой адресацией пока не проверено и заблокировано")
     log_cb(f"[*] Стирание перед записью: {part_name}, LBA {start_lba}..{end_lba}.")
     meter = _SpeedMeter(log_cb, "стирания", (end_lba - start_lba + 1) * P.SECTOR_SIZE)
     for first in range(start_lba, end_lba + 1, P.ERASE_CHUNK_SECTORS):
@@ -594,9 +607,9 @@ def write_partition(log_cb, is_18v, bus_width, part_name, in_path, abort_check=N
     try:
         log_cb(f"[*] Инициализация eMMC перед записью {part_name}...")
         session.init_hw(is_18v, bus_width)
-        _, _, ecsd = session.wake_registers(bus_width)
+        _, csd_raw, ecsd = session.wake_registers(bus_width)
         capacity = (ecsd[226] * 128 * 1024 if part_name in ("BOOT1", "BOOT2")
-                    else int.from_bytes(ecsd[212:216], "little") * P.SECTOR_SIZE)
+                    else registers.user_sector_count(ecsd, csd_raw) * P.SECTOR_SIZE)
         transfer_bytes = ((file_size + P.CHUNK_BYTES - 1) // P.CHUNK_BYTES) * P.CHUNK_BYTES
         if capacity <= 0 or transfer_bytes > capacity:
             log_cb(f"[-] Ошибка: образ не помещается в {part_name} (файл {file_size}, область {capacity} байт).")
@@ -672,12 +685,12 @@ def write_lba_range(log_cb, is_18v, bus_width, part_name, start_lba, end_lba,
     try:
         log_cb(f"[*] Инициализация eMMC перед записью {part_name}...")
         session.init_hw(is_18v, bus_width)
-        _, _, ecsd = session.wake_registers(bus_width)
+        _, csd_raw, ecsd = session.wake_registers(bus_width)
         session.select_user(0.05)
         write_plans = None
         erased_byte = (0xFF if ecsd[181] & 1 else 0x00) if erase_before else None
         if erase_before:
-            capacity = int.from_bytes(ecsd[212:216], "little")
+            capacity = registers.user_sector_count(ecsd, csd_raw)
             if not 0 <= start_lba <= end_lba < capacity:
                 raise ValueError("Границы стирания выходят за User Area")
             group = ecsd[224] * 1024 if ecsd[175] & 1 else 0
